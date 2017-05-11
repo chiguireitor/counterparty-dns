@@ -1,0 +1,21 @@
+{
+  "name": "counterparty-dns",
+  "version": "0.0.1",
+  "description": "A DNS frontend for Counterparty",
+  "main": "server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "xcp",
+    "counterparty",
+    "bitcoin",
+    "dns"
+  ],
+  "author": "John \"Chiguireitor\" Villar",
+  "license": "MIT",
+  "dependencies": {
+    "get-json": "0.0.3",
+    "node-named": "0.0.1"
+  }
+}
