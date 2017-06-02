@@ -24,12 +24,72 @@ const named = require('node-named')
 const server = named.createServer()
 const getJSON = require('get-json')
 const util = require('util')
+const jayson = require('jayson/promise')
+const levelup = require('levelup')
+const async = require('async')
 
 const DNS_PORT = 9901
 const DNS_IP = '::1'
 const ttl = 600 // Don't query me faster than the underlying blockchain
+const FIRST_BLOCK_WITH_DNS = 1121984
+
+const config = {
+  'xcp': {
+    'endpoint': 'https://rpc:1234@public.coindaddy.io:14001/api/'
+  }
+}
 
 const XCP_API_ENDPOINT = 'https://testnet.counterpartychain.io/api/issuances/'
+
+var db = levelup('./cpdns')
+
+var xcpClient = jayson.client.https(config.xcp.endpoint)
+function xcp(method, params) {
+  return xcpClient.request(method, params)
+    .then(ob => {
+      ob.request = {
+        method,
+        params
+      }
+
+      return ob
+    })
+}
+
+function getLastBlock() {
+  return new Promise((resolve, reject) => {
+    db.get('_lastblock', (err, data) => {
+      if (err) {
+        resolve(FIRST_BLOCK_WITH_DNS - 1)
+      } else {
+        resolve(parseInt(data))
+      }
+    })
+  })
+}
+
+function updateLastBlock(idx) {
+  return new Promise((resolve, reject) => {
+    db.put('_lastblock', idx, (err) => {
+      if (err) {
+        reject(err)
+      } else {
+        resolve(idx)
+      }
+    })
+  })
+}
+
+function modifyEntries(res) {
+  function entryFunc(entry) {
+    return new Promise((resolve, reject) => {
+      // get el entry anterior, si no hay crearlo, modificarlo, guardarlo
+      reject('Not implemented')
+    })
+  }
+
+  return Promise.all(res.map(entryFunc))
+}
 
 function getIssuances(asset) {
   return new Promise((resolve, reject) => {
@@ -167,3 +227,48 @@ server.on('query', function(query) {
     })
 
 })
+
+function getNextBlock() {
+  Promise.all([getLastBlock(), xcp('get_running_info')])
+    .then(([block, runningInfo]) => {
+      //console.log(util.inspect(runningInfo.result, {colors: true}))
+
+      if (!runningInfo.result.db_caught_up) {
+        // wait a bit, counterparty is catching up
+        setTimeout(getNextBlock, 5000)
+      } else if (block < runningInfo.result.bitcoin_block_count) {
+        let nblock = block + 1
+        console.log(`Getting block ${nblock}`)
+        return xcp('get_messages', {
+            block_index: nblock
+          })
+      }
+    })
+    .then(({result, error, request}) => {
+      if (error) {
+        console.log(error)
+      } else if (result) {
+        let res = result
+          .map(x => (x.category === "issuances")?JSON.parse(x.bindings):null)
+          .reduce((arr, elm) => {
+            if (elm) {
+              arr.push(elm)
+            }
+
+            return arr
+          }, [])
+        //console.log(util.inspect(res, {colors: true}))
+
+        return Promise.all([
+          updateLastBlock(request.params.block_index),
+          modifyEntries(res)
+        ])
+      }
+    }).then(() => {
+      setImmediate(getNextBlock)
+    }).catch(err => {
+      console.log(util.inspect(err))
+    })
+}
+
+getNextBlock()

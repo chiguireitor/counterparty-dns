@@ -15,7 +15,12 @@
   "author": "John \"Chiguireitor\" Villar",
   "license": "MIT",
   "dependencies": {
+    "async": "^2.4.1",
     "get-json": "0.0.3",
-    "node-named": "0.0.1"
+    "jayson": "^2.0.3",
+    "leveldown": "^1.7.1",
+    "levelup": "^1.3.8",
+    "node-named": "0.0.1",
+    "request": "^2.81.0"
   }
 }
