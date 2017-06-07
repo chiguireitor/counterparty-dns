@@ -41,7 +41,9 @@ const config = {
 
 const XCP_API_ENDPOINT = 'https://testnet.counterpartychain.io/api/issuances/'
 
-var db = levelup('./cpdns')
+var db = levelup('./cpdns', {
+  valueEncoding: 'json'
+})
 
 var xcpClient = jayson.client.https(config.xcp.endpoint)
 function xcp(method, params) {
@@ -84,11 +86,91 @@ function modifyEntries(res) {
   function entryFunc(entry) {
     return new Promise((resolve, reject) => {
       // get el entry anterior, si no hay crearlo, modificarlo, guardarlo
-      reject('Not implemented')
+      //console.log(util.inspect(entry, {colors: true}))
+      let asset = entry.asset
+      let assetData = entry.description
+
+      db.get(asset, (err, data) => {
+        let ob
+        if (err) {
+          if (err.notFound) {
+            ob = {}
+          } else {
+            reject(err)
+          }
+        } else {
+          ob = data
+        }
+
+        let issuanceData = procIssuanceData(assetData, asset)
+        if (issuanceData) {
+          let typeHash = ob[issuanceData.recordType] || {}
+          let keyArray = typeHash[issuanceData.key] || []
+          keyArray.push({
+            weight: issuanceData.weight,
+            value: issuanceData.value
+          })
+          typeHash[issuanceData.key] = keyArray
+          ob[issuanceData.recordType] = typeHash
+
+          //console.log(util.inspect(issuanceData, {colors: true, depth: 3}))
+          console.log(util.inspect(ob, {colors: true, depth: 3}))
+
+          db.put(asset, ob, (err) => {
+            if (err) {
+              reject(err)
+            } else {
+              resolve(ob)
+            }
+          })
+        } else {
+          resolve()
+        }
+      })
     })
   }
 
   return Promise.all(res.map(entryFunc))
+}
+
+function procIssuanceData(data, postdomain) {
+  if (data.length > 0) {
+    let op = data[0]
+    if (op == '+') {
+      let vals = data.slice(1).split(',')
+
+      if (vals.length >= 3) {
+        let [idx, weight] = vals[0].split('/')
+        let recordType = vals[1]
+        let key, value
+
+        //let recordArr = ensureRecord(recordType, idx)
+
+        if (recordType == 'A') {
+          if (vals.length == 3) {
+            key = postdomain
+            value = vals[2]
+          } else {
+            key = vals[2] + '.' + postdomain
+            value = vals[3]
+          }
+        } else if (recordType == 'CNAME') {
+          key = vals[2] + '.' + postdomain
+          value = vals[3]
+        } else {
+          key = vals[2]
+          value = vals[3]
+        }
+
+        return {
+          key,
+          recordType,
+          value,
+          weight
+        }
+      }
+    }
+  }
 }
 
 function getIssuances(asset) {
@@ -229,13 +311,13 @@ server.on('query', function(query) {
 })
 
 function getNextBlock() {
-  Promise.all([getLastBlock(), xcp('get_running_info')])
+  return Promise.all([getLastBlock(), xcp('get_running_info')])
     .then(([block, runningInfo]) => {
       //console.log(util.inspect(runningInfo.result, {colors: true}))
 
       if (!runningInfo.result.db_caught_up) {
         // wait a bit, counterparty is catching up
-        setTimeout(getNextBlock, 5000)
+        throw new Error('XCP DB Catching up')
       } else if (block < runningInfo.result.bitcoin_block_count) {
         let nblock = block + 1
         console.log(`Getting block ${nblock}`)
